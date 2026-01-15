@@ -1,0 +1,375 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum WorkspaceType {
+  influencer
+  producer
+  indie
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REMOVED
+}
+
+// ✅ مزودي تسجيل الدخول الاجتماعي
+enum AuthProvider {
+  GOOGLE
+  APPLE
+  MICROSOFT
+  EMAIL
+}
+
+enum ProfileStatus {
+  PENDING
+  COMPLETE
+}
+
+model User {
+  id         String  @id @default(cuid())
+  username   String? @unique
+  email      String? @unique
+  first_name String?
+  last_name  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  status        ProfileStatus  @default(PENDING)
+  // ✅ كلمة المرور نفصلها في جدول (حتى OAuth ما يحتاج password_hash = null)
+  password      UserPassword?
+  // ✅ ربط حسابات OAuth
+  oauthAccounts OAuthAccount[]
+
+  /// كل عضويات المستخدم داخل workspaces
+  memberships    WorkspaceMember[] @relation("MemberUser")
+  /// الدعوات التي أرسلها المستخدم لأعضاء آخرين
+  invitedMembers WorkspaceMember[] @relation("MemberInvitedBy")
+
+  /// كل طلبات الانضمام التي قدّمها المستخدم (كـ Applicant)
+  applications WorkspaceApplication[] @relation("UserApplications")
+
+  /// الطلبات التي قام هذا المستخدم بمراجعتها كأدمن/مراجع
+  reviewedApplications WorkspaceApplication[] @relation("ReviewedApps")
+
+  /// كل الـ workspaces التي يملكها المستخدم (Owner)
+  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+
+  /// سجلات التدقيق (Audit) التي قام بها المستخدم
+  auditLogs AuditLog[] @relation("UserAuditActor")
+  sessions  Session[]
+}
+
+// ===== start auth modals =======
+
+// ✅ جدول كلمة المرور (1-1) مع المستخدم
+model UserPassword {
+  userId String @id
+
+  // ✅ نخزن Argon2 hash فقط
+  hash String
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ✅ جدول حسابات OAuth المرتبطة بالمستخدم
+model OAuthAccount {
+  id String @id @default(cuid())
+
+  provider AuthProvider
+
+  // ✅ معرّف المستخدم عند المزود (sub)
+  providerAccountId String
+
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // ✅ يمنع تكرار نفس حساب المزود
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// ✅ جلسات Refresh Tokens (نخزن hash للرفرش فقط)
+model Session {
+  id String @id @default(cuid())
+
+  userId String
+
+  // ✅ نخزن HASH للرفرش توكن وليس التوكن نفسه
+  refreshTokenHash String
+
+  // ✅ انتهاء الجلسة (30 يوم)
+  expiresAt DateTime
+
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  // ✅ معلومات اختيارية للتتبع والأمان
+  ip        String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ===== end auth modals =======
+
+model Workspace {
+  id   String        @id @default(cuid())
+  type WorkspaceType
+
+  /// اسم workspace (ظاهر في الواجهة)
+  name String
+
+  /// slug للرابط
+  slug String @unique
+
+  /// مالك الـ workspace
+  ownerId String
+  owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// الأعضاء داخل الـ workspace
+  members WorkspaceMember[]
+
+  /// roles داخل هذا الـ workspace (RBAC)
+  roles Role[]
+
+  /// معلومات أساسية ثابتة + extra json للتوسع
+  profile WorkspaceProfile?
+
+  /// إعدادات قابلة للتوسع
+  settings Json?
+
+  /// سجلات التدقيق الخاصة بهذا الـ workspace
+  auditLogs AuditLog[]
+
+  /// التطبيقات/الطلبات المرتبطة بهذا الـ workspace (workspaceId)
+  applications WorkspaceApplication[] @relation("ApplicationWorkspace")
+
+  /// التطبيقات التي أنشأت هذا الـ workspace (createdWorkspaceId)
+  createdFromApplications WorkspaceApplication[] @relation("CreatedWorkspace")
+
+  @@index([type])
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String @id @default(cuid())
+  workspaceId String
+  userId      String
+
+  status MembershipStatus @default(INVITED)
+
+  /// هل هذا العضو هو مالك الـ workspace (Owner)
+  isOwner Boolean @default(false)
+
+  /// من الذي أضاف/دعَا هذا العضو
+  invitedById String?
+  invitedBy   User?   @relation("MemberInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation("MemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// أدوار العضو (many-to-many عبر MemberRole)
+  roles MemberRole[]
+
+  /// استثناءات صلاحيات مباشرة على العضو
+  overrides MemberPermissionOverride[]
+
+  @@unique([workspaceId, userId])
+  @@index([userId, status])
+  @@index([workspaceId, status])
+}
+
+model WorkspaceApplication {
+  id String @id @default(cuid())
+
+  /// صاحب الطلب
+  applicantId String
+  applicant   User   @relation("UserApplications", fields: [applicantId], references: [id], onDelete: Cascade)
+
+  /// نوع البرنامج المطلوب
+  workspaceType WorkspaceType
+
+  status ApplicationStatus @default(PENDING)
+
+  /// بيانات الطلب المرنة
+  payload Json
+
+  /**
+   * ✅ مراجعة أدمن المنصّة
+   */
+  reviewedById String?
+  reviewedBy   User?   @relation("ReviewedApps", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  reviewNote String?
+  decidedAt  DateTime?
+
+  /**
+   * بعد القبول: يتم إنشاء workspace لصاحب الطلب ونربطه هنا
+   */
+  createdWorkspaceId String?
+  createdWorkspace   Workspace? @relation("CreatedWorkspace", fields: [createdWorkspaceId], references: [id], onDelete: SetNull)
+
+  /**
+   * (اختياري) ربط الطلب بـ workspace معيّن (مثلاً لو عندك workspace templates أو سياق مختلف)
+   */
+  workspaceId String?
+  workspace   Workspace? @relation("ApplicationWorkspace", fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([workspaceType, status])
+  @@index([applicantId, status])
+  @@index([reviewedById])
+  @@index([workspaceId])
+  @@index([createdWorkspaceId])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  actorId String
+  actor   User   @relation("UserAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  /// مثال: "APPLICATION_APPROVED" / "MEMBER_INVITED" / "ROLE_UPDATED"
+  action String
+
+  /// الهدف (اختياري): user/role/member/application...
+  targetType String?
+  targetId   String?
+
+  /// بيانات إضافية
+  meta Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([actorId])
+  @@index([action])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model Permission {
+  id            String        @id @default(cuid())
+  workspaceType WorkspaceType
+
+  /// مثال: members:read, members:manage, roles:manage, content:manage...
+  key         String
+  description String?
+
+  roleLinks   RolePermission[]
+  memberLinks MemberPermissionOverride[]
+
+  @@unique([workspaceType, key])
+  @@index([workspaceType])
+}
+
+model Role {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  /// key برمجي ثابت: owner/admin/moderator/viewer...
+  key         String
+  name        String
+  description String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  /// صلاحيات الدور (many-to-many)
+  permissions RolePermission[]
+
+  /// الأعضاء الذين يملكون هذا الدور (many-to-many)
+  members MemberRole[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+}
+
+model MemberRole {
+  memberId String
+  roleId   String
+
+  member WorkspaceMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  role   Role            @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, roleId])
+  @@index([roleId])
+}
+
+model MemberPermissionOverride {
+  id           String           @id @default(cuid())
+  memberId     String
+  permissionId String
+  effect       PermissionEffect @default(ALLOW)
+
+  member     WorkspaceMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  permission Permission      @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, permissionId])
+  @@index([memberId])
+}
+
+model WorkspaceProfile {
+  /// نفس id للـ workspace (one-to-one)
+  workspaceId String @id
+
+  displayName  String
+  bio          String?
+  avatarUrl    String?
+  coverUrl     String?
+  contactEmail String?
+
+  /// مساحة مرنة حسب نوع البرنامج
+  extra Json?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
