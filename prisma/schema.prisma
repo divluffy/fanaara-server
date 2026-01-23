@@ -46,12 +46,22 @@ enum ProfileStatus {
   COMPLETE
 }
 
-model User {
+enum Gender {
+  MALE
+  FEMALE
+  NA
+}
+
+model Users {
   id         String  @id @default(cuid())
   username   String? @unique
   email      String? @unique
   first_name String?
   last_name  String?
+  dob        String?
+  gender     Gender  @default(NA)
+  avatar     String?
+  country    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -92,7 +102,7 @@ model UserPassword {
 
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ✅ جدول حسابات OAuth المرتبطة بالمستخدم
@@ -107,7 +117,7 @@ model OAuthAccount {
   userId    String
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // ✅ يمنع تكرار نفس حساب المزود
   @@unique([provider, providerAccountId])
@@ -133,7 +143,7 @@ model Session {
   ip        String?
   userAgent String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -153,7 +163,7 @@ model Workspace {
 
   /// مالك الـ workspace
   ownerId String
-  owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner   Users  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -195,13 +205,13 @@ model WorkspaceMember {
 
   /// من الذي أضاف/دعَا هذا العضو
   invitedById String?
-  invitedBy   User?   @relation("MemberInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitedBy   Users?  @relation("MemberInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation("MemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  user      Users     @relation("MemberUser", fields: [userId], references: [id], onDelete: Cascade)
 
   /// أدوار العضو (many-to-many عبر MemberRole)
   roles MemberRole[]
@@ -219,7 +229,7 @@ model WorkspaceApplication {
 
   /// صاحب الطلب
   applicantId String
-  applicant   User   @relation("UserApplications", fields: [applicantId], references: [id], onDelete: Cascade)
+  applicant   Users  @relation("UserApplications", fields: [applicantId], references: [id], onDelete: Cascade)
 
   /// نوع البرنامج المطلوب
   workspaceType WorkspaceType
@@ -233,7 +243,7 @@ model WorkspaceApplication {
    * ✅ مراجعة أدمن المنصّة
    */
   reviewedById String?
-  reviewedBy   User?   @relation("ReviewedApps", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy   Users?  @relation("ReviewedApps", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   reviewNote String?
   decidedAt  DateTime?
@@ -268,7 +278,7 @@ model AuditLog {
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   actorId String
-  actor   User   @relation("UserAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  actor   Users  @relation("UserAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
 
   /// مثال: "APPLICATION_APPROVED" / "MEMBER_INVITED" / "ROLE_UPDATED"
   action String
@@ -364,7 +374,7 @@ model WorkspaceProfile {
 
   displayName  String
   bio          String?
-  avatarUrl    String?
+  avatar       String?
   coverUrl     String?
   contactEmail String?
 

@@ -10,6 +10,11 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { RedisService } from './redis/redis.service';
 import { UsersModule } from './users/users.module';
+import { OpenAIModule } from './integrations/openai/openai.module';
+import { UploadsModule } from './uploads/uploads.module';
+import { ModerationModule } from './moderation/moderation.module';
+import { ModerationQueuesModule } from './queues/moderation/moderation-queues.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -40,6 +45,11 @@ import { UsersModule } from './users/users.module';
     RedisModule,
     AuthModule,
     UsersModule,
+    OpenAIModule,
+    UploadsModule,
+    ModerationModule,
+    ScheduleModule.forRoot(),
+    ModerationQueuesModule,
   ],
   controllers: [],
   providers: [

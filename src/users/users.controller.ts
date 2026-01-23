@@ -1,3 +1,4 @@
+// src\users\users.controller.ts
 import {
   Body,
   Controller,
@@ -11,6 +12,8 @@ import {
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UsersService } from './users.service';
 import { SessionGuard } from 'src/auth/guards/session.guard';
+
+type AuthedRequest = Request & { user: { id: string } };
 
 @Controller('users')
 export class UsersController {
@@ -31,8 +34,10 @@ export class UsersController {
 
   @UseGuards(SessionGuard)
   @Patch('me')
-  updateProfile(@Req() req: Request, @Body() body: UpdateProfileDto) {
+  updateProfile(@Req() req: AuthedRequest, @Body() body: UpdateProfileDto) {
     console.log('get me in users');
-    // return this.usersService.updateProfile(req.user!.id, body);
+    console.log('body: ', body);
+    console.log('req.user.id: ', req.user.id);
+    return this.usersService.updateProfile(req.user.id, body);
   }
 }

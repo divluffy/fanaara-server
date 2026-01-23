@@ -1,15 +1,18 @@
+// src/users/dto/update-profile.dto.ts
 import {
   IsDateString,
   IsEnum,
   IsOptional,
   IsString,
+  IsUrl,
+  Matches,
   MinLength,
 } from 'class-validator';
 
 export enum Gender {
-  MALE = 'male',
-  FEMALE = 'female',
-  OTHER = 'other',
+  MALE = 'MALE',
+  FEMALE = 'FEMALE',
+  NA = 'NA',
 }
 
 export class UpdateProfileDto {
@@ -24,6 +27,7 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MinLength(3)
+  @Matches(/^[a-zA-Z][a-zA-Z0-9_]{3,31}$/)
   username?: string;
 
   @IsOptional()
@@ -36,5 +40,9 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsDateString()
-  birthDate?: string;
+  dob?: string;
+
+  @IsOptional()
+  @IsUrl()
+  avatar?: string;
 }

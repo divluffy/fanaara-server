@@ -1,4 +1,10 @@
+when add new column for and table
 
+npx prisma migrate dev -n add_user_avatar
+npx prisma migrate dev -n add_user_dob
+
+
+=====
 
 
 

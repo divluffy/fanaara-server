@@ -122,7 +122,7 @@ CREATE TABLE "WorkspaceProfile" (
     "workspaceId" TEXT NOT NULL,
     "displayName" TEXT NOT NULL,
     "bio" TEXT,
-    "avatarUrl" TEXT,
+    "avatar" TEXT,
     "coverUrl" TEXT,
     "contactEmail" TEXT,
     "extra" JSONB,

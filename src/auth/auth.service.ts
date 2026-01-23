@@ -9,75 +9,75 @@ import { randomUUID } from 'crypto';
 import { SignupDto } from './dto/signup.dto';
 import { RedisService } from 'src/redis/redis.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import {
+  SESSION_TTL_SECONDS,
+  sessionKey,
+  userSessionsKey,
+} from './auth.constants';
+import { Prisma } from 'generated/prisma/client';
 
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+type SignupUser = Prisma.UsersGetPayload<{
+  select: { id: true; email: true; username: true; status: true };
+}>;
 
 @Injectable()
 export class AuthService {
   constructor(
-    private prisma: PrismaService,
-    private redis: RedisService,
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {}
 
   // ===== SIGNUP =====
   async signup(dto: SignupDto) {
-    const exists = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-      select: { id: true },
-    });
-
-    if (exists) {
-      throw new ConflictException('Email already used');
-    }
-
     const passwordHash = await argon2.hash(dto.password);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        password: { create: { hash: passwordHash } },
-      },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        status: true,
-      },
-    });
+    let user: SignupUser;
+
+    try {
+      user = await this.prisma.users.create({
+        data: {
+          email: dto.email,
+          password: { create: { hash: passwordHash } },
+        },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          status: true,
+        },
+      });
+    } catch (e) {
+      // منع race condition: الاعتماد على unique index في DB
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('messages.signup.email.taken');
+      }
+      throw e;
+    }
 
     const sessionId = randomUUID();
 
-    // حفظ session لكل مستخدم
-    await this.redis.set(
-      `session:${sessionId}`,
-      JSON.stringify({ userId: user.id }),
-      SESSION_TTL_SECONDS,
-    );
+    const sKey = sessionKey(sessionId);
 
-    // إضافة sessionId للقائمة الخاصة بالمستخدم
-    const userSessionsKey = `user:${user.id}:sessions`;
-    const existing = await this.redis.get(userSessionsKey);
-    const sessions = existing ? JSON.parse(existing) : [];
-    sessions.push(sessionId);
-    await this.redis.set(
-      userSessionsKey,
-      JSON.stringify(sessions),
-      SESSION_TTL_SECONDS,
-    );
+    const uKey = userSessionsKey(user.id);
+
+    // Atomic + أقل round-trips
+    const tx = this.redis.multi();
+    tx.set(sKey, user.id, 'EX', SESSION_TTL_SECONDS);
+    tx.sadd(uKey, sessionId);
+    tx.expire(uKey, SESSION_TTL_SECONDS);
+    await tx.exec();
 
     return { user, sessionId };
   }
 
   // ===== ME =====
-  async me(sessionId?: string) {
-    if (!sessionId) throw new UnauthorizedException();
+  async me(userId?: string) {
+    if (!userId) throw new UnauthorizedException();
 
-    const data = await this.redis.get(`session:${sessionId}`);
-    if (!data) throw new UnauthorizedException();
-
-    const { userId } = JSON.parse(data);
-
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.users.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -90,45 +90,36 @@ export class AuthService {
     });
 
     if (!user) throw new UnauthorizedException();
-
     return { user };
   }
 
   // ===== LOGOUT =====
   async logout(sessionId: string) {
-    const data = await this.redis.get(`session:${sessionId}`);
-    if (!data) return;
+    const sKey = sessionKey(sessionId);
 
-    const { userId } = JSON.parse(data);
+    const userId = await this.redis.get(sKey);
+    if (!userId) return;
 
-    // حذف session الحالي
-    await this.redis.del(`session:${sessionId}`);
+    const uKey = userSessionsKey(userId);
 
-    // إزالة من قائمة الجلسات الخاصة بالمستخدم
-    const userSessionsKey = `user:${userId}:sessions`;
-    const existing = await this.redis.get(userSessionsKey);
-    if (existing) {
-      const sessions = JSON.parse(existing).filter(
-        (s: string) => s !== sessionId,
-      );
-      await this.redis.set(
-        userSessionsKey,
-        JSON.stringify(sessions),
-        SESSION_TTL_SECONDS,
-      );
-    }
+    const tx = this.redis.multi();
+    tx.del(sKey);
+    tx.srem(uKey, sessionId);
+    await tx.exec();
   }
 
   // ===== LOGOUT ALL DEVICES =====
   async logoutAll(userId: string) {
-    const userSessionsKey = `user:${userId}:sessions`;
-    const existing = await this.redis.get(userSessionsKey);
-    if (existing) {
-      const sessions: string[] = JSON.parse(existing);
-      for (const s of sessions) {
-        await this.redis.del(`session:${s}`);
-      }
-      await this.redis.del(userSessionsKey);
+    const uKey = userSessionsKey(userId);
+
+    const sessions = await this.redis.smembers(uKey);
+    if (!sessions?.length) return;
+
+    const pipe = this.redis.pipeline();
+    for (const s of sessions) {
+      pipe.del(sessionKey(s));
     }
+    pipe.del(uKey);
+    await pipe.exec();
   }
 }

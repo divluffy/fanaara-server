@@ -1,3 +1,4 @@
+// src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
@@ -8,6 +9,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(cookieParser());
+  app.use(helmet());
 
   // ✅ مهم جدًا: Validation على كل DTO
   app.useGlobalPipes(
@@ -24,8 +26,6 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix('api');
-
-  app.use(helmet());
 
   app.useGlobalPipes(
     new ValidationPipe({

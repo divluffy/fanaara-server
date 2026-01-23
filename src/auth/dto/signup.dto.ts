@@ -3,25 +3,35 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
+  IsNotEmpty,
   IsString,
   Matches,
   MinLength,
 } from 'class-validator';
+import { IsNotTempEmail } from 'src/common/email-blocklist/is-not-temp-email.decorator';
 
 export class SignupDto {
   @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim().toLowerCase() : value,
+    typeof value === 'string' ? value.trim().toLowerCase() : (value as string),
   )
-  @IsEmail({}, { message: 'صيغة البريد الإلكتروني غير صحيحة' })
+  @IsEmail({}, { message: 'messages.signup.email.invalid' })
+  @IsNotEmpty({ message: 'messages.signup.email.required' })
+  @IsNotTempEmail({ message: 'messages.signup.email.temp_not_allowed' })
   email: string;
 
-  @IsString()
-  @MinLength(8, { message: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' })
+  @IsString({ message: 'messages.signup.password.string' })
+  @IsNotEmpty({ message: 'messages.signup.password.required' })
+  @MinLength(8, { message: 'messages.signup.password.min' })
   @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,}$/, {
-    message: 'لازم تحتوي على حروف وأرقام',
+    message: 'messages.signup.password.pattern',
   })
   password: string;
 
-  @IsBoolean({ message: 'agree يجب أن تكون true/false' })
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value === 'true' || value === '1';
+    return false;
+  })
+  @IsBoolean({ message: 'messages.signup.agree.required' })
   agree: boolean;
 }

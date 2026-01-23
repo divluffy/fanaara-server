@@ -5,23 +5,16 @@ import {
   Post,
   Req,
   Res,
-  HttpException,
-  HttpStatus,
   Get,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
+import { SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from './auth.constants';
+import { SessionGuard } from './guards/session.guard';
 
-const SESSION_COOKIE = 'session_fanaara_id';
-
-const sessionCookieOptions = () => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/',
-  maxAge: 1000 * 60 * 60 * 24 * 30,
-});
+type AuthedRequest = Request & { user: { id: string }; sessionId?: string };
 
 @Controller('auth')
 export class AuthController {
@@ -31,39 +24,34 @@ export class AuthController {
   @Post('signup')
   async signup(
     @Body() dto: SignupDto,
-    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    if (!dto.email || !dto.password) {
-      throw new HttpException('Invalid data', HttpStatus.BAD_REQUEST);
-    }
-
     const { user, sessionId } = await this.auth.signup(dto);
 
-    res.cookie(SESSION_COOKIE, sessionId, sessionCookieOptions());
+    res.cookie(SESSION_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
 
     return { user };
   }
 
   // ===== ME =====
+  @UseGuards(SessionGuard)
   @Get('me')
-  async me(@Req() req: Request) {
-    console.log("get me in auth");
-    
-    const sessionId = req.cookies?.[SESSION_COOKIE];
-    return this.auth.me(sessionId);
+  async me(@Req() req: AuthedRequest) {
+    console.log('get me -- auth');
+
+    return this.auth.me(req.user.id);
   }
 
   // ================= LOGOUT =================
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const sessionId = req.cookies?.[SESSION_COOKIE];
+    const sessionId = req.cookies?.[SESSION_COOKIE] as string | undefined;
 
     if (sessionId) {
       await this.auth.logout(sessionId);
     }
 
-    res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
+    res.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);
     return { ok: true };
   }
 }
