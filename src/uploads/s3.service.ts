@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -28,6 +29,10 @@ export class S3Service {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
       },
+
+      // ✅ هذا يمنع إضافة checksum middleware في بعض الإصدارات
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
 
@@ -45,9 +50,6 @@ export class S3Service {
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: params.key,
-      ContentType: params.contentType,
-      Metadata: params.metadata,
-      Tagging: params.tagging,
     });
 
     const url = await getSignedUrl(this.client, cmd, {
@@ -73,6 +75,114 @@ export class S3Service {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
+  }
+
+  // داخل class S3Service
+  async deleteMany(keys: string[]): Promise<void> {
+    if (!Array.isArray(keys) || keys.length === 0) return;
+
+    // تنظيف + dedupe
+    const uniq = Array.from(
+      new Set(
+        keys
+          .filter(
+            (k): k is string => typeof k === 'string' && k.trim().length > 0,
+          )
+          .map((k) => k.trim().replace(/^\/+/, '')), // remove leading slashes
+      ),
+    );
+
+    if (uniq.length === 0) return;
+
+    // S3 DeleteObjects limit = 1000 per request
+    const BATCH_SIZE = 1000;
+
+    const bucket =
+      // عدّل اسم الخاصية حسب الموجود عندك في S3Service
+      (this as any).bucketName ?? (this as any).bucket ?? (this as any).Bucket;
+
+    if (!bucket || typeof bucket !== 'string') {
+      throw new Error(
+        'S3Service.deleteMany: bucket name is missing. Ensure you have bucket/bucketName property.',
+      );
+    }
+
+    const client =
+      // عدّل اسم الخاصية حسب الموجود عندك في S3Service
+      (this as any).s3 ?? (this as any).client ?? (this as any).s3Client;
+
+    if (!client?.send) {
+      throw new Error(
+        'S3Service.deleteMany: S3 client is missing (expected AWS SDK v3 client with .send())',
+      );
+    }
+
+    let deletedTotal = 0;
+
+    for (let i = 0; i < uniq.length; i += BATCH_SIZE) {
+      const chunk = uniq.slice(i, i + BATCH_SIZE);
+
+      // retry بسيط للـ transient errors
+      const maxAttempts = 3;
+      let lastErr: any = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const res = await client.send(
+            new DeleteObjectsCommand({
+              Bucket: bucket,
+              Delete: {
+                Objects: chunk.map((Key) => ({ Key })),
+                Quiet: true,
+              },
+            }),
+          );
+
+          // لو AWS رجع Errors (per-object)
+          if (res?.Errors?.length) {
+            const sample = res.Errors.slice(0, 5)
+              .map((e: any) => `${e?.Key ?? 'unknown'}:${e?.Code ?? 'ERR'}`)
+              .join(', ');
+            throw new Error(
+              `S3 deleteMany partial failure: errors=${res.Errors.length} sample=[${sample}]`,
+            );
+          }
+
+          deletedTotal += chunk.length;
+          lastErr = null;
+          break; // success
+        } catch (err: any) {
+          lastErr = err;
+
+          const msg = String(err?.message ?? err);
+          const retryable =
+            msg.includes('SlowDown') ||
+            msg.includes('Throttl') ||
+            msg.includes('Timeout') ||
+            msg.includes('ECONN') ||
+            msg.includes('503');
+
+          if (!retryable || attempt === maxAttempts) {
+            this.logger?.error?.(
+              `S3 deleteMany failed: batch=${i / BATCH_SIZE + 1} size=${
+                chunk.length
+              } attempt=${attempt} err=${msg}`,
+            );
+            throw err;
+          }
+
+          const backoffMs = 200 * attempt * attempt;
+          this.logger?.warn?.(
+            `S3 deleteMany retrying: attempt=${attempt}/${maxAttempts} backoff=${backoffMs}ms err=${msg}`,
+          );
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
+
+      if (lastErr) throw lastErr;
+    }
+
+    this.logger?.log?.(`S3 deleteMany ok: deleted=${deletedTotal}`);
   }
 
   async copyObject(fromKey: string, toKey: string, tagging?: string) {

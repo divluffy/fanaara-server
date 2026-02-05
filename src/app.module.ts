@@ -15,6 +15,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { ModerationModule } from './moderation/moderation.module';
 import { ModerationQueuesModule } from './queues/moderation/moderation-queues.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { CreatorComicsModule } from './creator-comics/creator-comics.module';
 
 @Module({
   imports: [
@@ -50,6 +51,9 @@ import { ScheduleModule } from '@nestjs/schedule';
     ModerationModule,
     ScheduleModule.forRoot(),
     ModerationQueuesModule,
+
+    // testing
+    CreatorComicsModule,
   ],
   controllers: [],
   providers: [

@@ -383,3 +383,124 @@ model WorkspaceProfile {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
+
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// #################################################################
+// new modals for testing editor chapters 
+
+enum WorkType {
+  MANGA
+  MANHWA
+  MANHUA
+  COMIC
+  WEBTOON
+  OTHER
+}
+
+enum ArtStyleCategory {
+  BW_MANGA
+  FULL_COLOR
+  WESTERN_COMIC
+  SEMI_REALISTIC
+  REALISTIC
+  CHIBI
+  PIXEL_ART
+  OTHER
+}
+
+enum AnalysisJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model CreativeWork {
+  id               String           @id @default(uuid())
+  ownerId          String
+  workType         WorkType
+  artStyleCategory ArtStyleCategory
+  title            String
+  description      String?
+  defaultLang      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  chapters         Chapter[]
+}
+
+model Chapter {
+  id        String   @id @default(uuid())
+  workId    String
+  title     String
+  number    Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  work  CreativeWork  @relation(fields: [workId], references: [id])
+  pages ChapterPage[]
+  jobs  AnalysisJob[]
+}
+
+model ChapterPage {
+  id               String   @id @default(uuid())
+  chapterId        String
+  orderIndex       Int
+  originalFilename String
+  s3Key            String
+  width            Int
+  height           Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  chapter     Chapter          @relation(fields: [chapterId], references: [id])
+  analysis    PageAnalysis?
+  annotations PageAnnotations?
+
+  @@index([chapterId, orderIndex])
+}
+
+model PageAnalysis {
+  id            String   @id @default(uuid())
+  pageId        String   @unique
+  model         String
+  detail        String
+  promptVersion String
+  rawJson       Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  page ChapterPage @relation(fields: [pageId], references: [id])
+}
+
+model PageAnnotations {
+  id        String   @id @default(uuid())
+  pageId    String   @unique
+  json      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  page ChapterPage @relation(fields: [pageId], references: [id])
+}
+
+model AnalysisJob {
+  id        String            @id @default(uuid())
+  chapterId String
+  status    AnalysisJobStatus
+  progress  Json
+  error     String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  chapter Chapter @relation(fields: [chapterId], references: [id])
+
+  @@index([chapterId])
+}
