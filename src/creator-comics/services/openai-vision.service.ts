@@ -415,7 +415,10 @@ export class OpenAiVisionService {
     elements: PageAnalysis['elements'],
     languageHint: string,
   ) {
-    const rtl = languageHint === 'ar'; // you can extend for ja manga reading later
+    const rtl =
+      languageHint === 'ar' ||
+      languageHint === 'ja' /* && workType === 'manga' */;
+
     const sorted = elements.slice().sort((a, b) => {
       const ay = a.geometry.anchor.y;
       const by = b.geometry.anchor.y;
