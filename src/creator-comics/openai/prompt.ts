@@ -5,71 +5,118 @@ export function buildComicPagePrompt(params: {
   pageWidth: number;
   pageHeight: number;
 }) {
+  // keep old name for compatibility (FULL PAGE)
+  return buildComicPagePromptFull(params);
+}
+
+export function buildComicPagePromptFull(params: {
+  workType: string;
+  artStyleCategory: string;
+  pageWidth: number;
+  pageHeight: number;
+}) {
   return `
 You are a "comics page annotation engine" for manga/manhwa/comics.
-Your job: detect ALL text-related elements in the page and return structured JSON.
+Return structured JSON that detects ALL text-related elements.
 
 Context:
 - workType: ${params.workType}
 - artStyleCategory: ${params.artStyleCategory}
-- image size (px): ${params.pageWidth}x${params.pageHeight}
+- full image size (px): ${params.pageWidth}x${params.pageHeight}
 
-STRICT OUTPUT RULES (Structured Outputs):
-A) Output ONLY valid JSON (no markdown, no backticks, no commentary).
-B) Follow the schema EXACTLY. Do NOT add extra keys.
-C) ALL fields MUST exist. If unknown, set the field to null (for nullable fields).
-D) Keep strings short. Avoid long explanations.
+STRICT OUTPUT RULES:
+A) Output ONLY valid JSON.
+B) Follow schema EXACTLY. Do NOT add keys.
+C) All fields must exist. Use null ONLY for nullable fields.
 
-Geometry rules:
-1) All bboxes/points MUST be normalized relative to full image size:
-   - x,y are top-left corner
-   - w,h are width/height
-2) container_bbox: bbox around the bubble/box area; if no container, bbox around the text region.
-3) text_bbox: tight bbox around the text region. If unknown, set null.
-4) anchor: center point of container_bbox (best effort).
+TEXT FIDELITY:
+1) text.original must match exactly as seen (case + punctuation).
+2) Preserve VISUAL line breaks exactly using "\\n".
+   - If the text is in multiple lines in the bubble, use "\\n" between lines.
+   - Do NOT merge lines.
+3) Do NOT translate.
 
-Element rules:
-5) Detect all meaningful text: speech, thought, narration, captions, signage, UI text, SFX.
-6) elementType must be one of:
-   SPEECH, THOUGHT, NARRATION, CAPTION, SFX, SCENE_TEXT, SIGNAGE, UI_TEXT
-7) container.shape must be one of:
-   ellipse, roundrect, rect, cloud, burst, none
-8) container.template_id MUST be one of:
-   bubble_ellipse, bubble_roundrect, bubble_cloud, bubble_burst,
-   narration_rect, narration_roundrect, caption_box,
-   scene_label, signage_label,
-   sfx_burst, sfx_outline,
-   plain_text
-9) If there is no visible container, use:
-   container.shape = "none" AND container.template_id = "plain_text"
+GEOMETRY (normalized to FULL image):
+4) container_bbox is a tight bbox of the container (bubble/box). If none, bbox around text.
+5) text_bbox is tight bbox around the ink (glyphs). If unknown, null.
+6) anchor is center of container_bbox.
+7) rotation_deg: 0 if normal. If tilted (common SFX), estimate degrees clockwise.
 
-Container params (IMPORTANT: required keys):
-10) container.params must ALWAYS be an object with EXACTLY these keys:
-   - padding: number or null
-   - cornerRadius: number or null
-   - spikes: number or null
-   Defaults:
-   - padding: 12 when a box/bubble exists; else null
-   - cornerRadius: 18 for roundrect; else null
-   - spikes: 10 for burst shapes; else null
+TYPES:
+8) Detect: speech, thought, narration, caption, signage, UI text, SFX.
+9) bubble_cloud = wavy/rounded cloud-like outline.
+   bubble_burst = sharp spiky outline.
+10) If no visible container: shape="none", template_id="plain_text".
 
-Text rules:
-11) text.original must be extracted EXACTLY as seen (keep punctuation). Do NOT translate.
-12) writingDirection:
-   - RTL for Arabic
-   - LTR for English/Latin
-   - TTB for vertical Japanese/Korean/Chinese when top-to-bottom
+READING ORDER:
+11) readingOrder must be unique integers starting from 1..N.
 
-Page metadata:
-13) keywords: 10-18 short keywords (avoid duplicates).
-14) scene_description: 1-2 short sentences (keep it under ~200 characters).
+PAGE METADATA:
+12) keywords: 10-18 short unique keywords.
+13) scene_description: 1-2 short sentences <= 200 chars.
 
-Notes:
-15) notes: usually null. Only set a short note if uncertainty is important (<= 60 chars).
+Return JSON only.
+`.trim();
+}
 
-Limits:
-16) If the page has too many detections, cap elements to ~160 most important text items.
+export function buildComicPagePromptTile(params: {
+  workType: string;
+  artStyleCategory: string;
+  fullWidth: number;
+  fullHeight: number;
+  tileX: number;
+  tileY: number;
+  tileW: number;
+  tileH: number;
+}) {
+  return `
+You are a "comics page annotation engine".
+This input image is a TILE CROP of the full page.
 
-Be conservative: if unsure, include the element with lower confidence.
+Full image size (px): ${params.fullWidth}x${params.fullHeight}
+Tile rect in full image (px): x=${params.tileX}, y=${params.tileY}, w=${params.tileW}, h=${params.tileH}
+
+STRICT OUTPUT RULES:
+- Output ONLY valid JSON. Follow schema EXACTLY. Do not add keys.
+- All fields must exist. Nullable fields use null.
+
+IMPORTANT:
+- Return ONLY elements that are visible in THIS TILE image.
+- ALL geometry returned must be normalized relative to the TILE image (0..1 in this crop).
+
+TEXT FIDELITY:
+- Extract text exactly, preserve visual line breaks using "\\n".
+
+GEOMETRY:
+- container_bbox: tight bbox around bubble/box in tile coords.
+- text_bbox: tight bbox around ink in tile coords (or null).
+- anchor: center of container_bbox.
+
+ROTATION:
+- rotation_deg: 0 unless text is clearly tilted (SFX).
+
+READING ORDER:
+- readingOrder within tile can be approximate; server will recompute globally.
+
+Return JSON only.
+`.trim();
+}
+
+export function buildComicElementRefinePrompt(params: {
+  fullWidth: number;
+  fullHeight: number;
+}) {
+  return `
+You are a "text refinement engine" for a single cropped text element.
+Return ONLY JSON following the schema EXACTLY.
+
+Rules:
+1) Extract the text EXACTLY as seen, preserve visual line breaks with "\\n".
+2) Do NOT translate.
+3) rotation_deg: estimate if text is tilted, else 0.
+4) writingDirection: RTL/LTR/TTB.
+5) Keep it short. No explanations.
+
+Return JSON only.
 `.trim();
 }

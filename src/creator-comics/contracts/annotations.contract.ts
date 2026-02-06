@@ -91,6 +91,7 @@ export interface ElementStyle {
   opacity: number;
   fontSize: number;
   align: 'left' | 'center' | 'right';
+  textRotation?: number;
 }
 
 export interface PageElement {

@@ -46,11 +46,6 @@ export const TemplateId = z.enum([
   'plain_text',
 ]);
 
-/**
- * NOTE:
- * Removing min/max constraints reduces schema mismatch frequency.
- * We will clamp in mapper before saving annotations.
- */
 export const NormalizedBBox = z.object({
   x: z.number(),
   y: z.number(),
@@ -63,10 +58,6 @@ export const NormalizedPoint = z.object({
   y: z.number(),
 });
 
-/**
- * Standardize params to a simple shape. This dramatically improves Structured Outputs reliability.
- * Always include these keys. If not applicable, set null.
- */
 export const ContainerParams = z.object({
   padding: z.number().nullable(),
   cornerRadius: z.number().nullable(),
@@ -80,7 +71,6 @@ export const PageAnalysisSchema = z.object({
     language_hint: TextLang,
   }),
 
-  // keep it unbounded to avoid mismatch; we enforce practical cap in the prompt
   elements: z.array(
     z.object({
       local_id: z.string(),
@@ -91,14 +81,14 @@ export const PageAnalysisSchema = z.object({
 
       geometry: z.object({
         container_bbox: NormalizedBBox,
-        text_bbox: NormalizedBBox.nullable(), // required + nullable
+        text_bbox: NormalizedBBox.nullable(),
         anchor: NormalizedPoint,
       }),
 
       container: z.object({
         shape: ContainerShape,
         template_id: TemplateId,
-        params: ContainerParams, // required object
+        params: ContainerParams,
       }),
 
       text: z.object({
@@ -117,9 +107,11 @@ export const PageAnalysisSchema = z.object({
           'gradient',
           'none',
         ]),
+        // ✅ NEW
+        rotation_deg: z.number(),
       }),
 
-      notes: z.string().nullable(), // required + nullable
+      notes: z.string().nullable(),
     }),
   ),
 });

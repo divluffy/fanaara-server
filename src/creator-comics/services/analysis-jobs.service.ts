@@ -207,7 +207,7 @@ export class AnalysisJobsService {
 
           for (const det of detailAttempts) {
             try {
-              result = await this.openai.analyzeComicPage({
+              result = await this.openai.analyzeComicPagePro({
                 imageUrl: signedGet,
                 workType: String(work.workType),
                 artStyleCategory: String(work.artStyleCategory),
@@ -215,7 +215,9 @@ export class AnalysisJobsService {
                 pageHeight: p.height,
                 model: dto.model,
                 detail: det,
+                refine: true, // ✅ مهم جداً للدقة (line breaks + rotation + cleanup)
               });
+
               break;
             } catch (err: any) {
               lastErr = err;
@@ -238,7 +240,7 @@ export class AnalysisJobsService {
           if (!result) throw lastErr ?? new Error('OpenAI returned no result');
 
           const ms = Date.now() - t0;
-          const parsed = result.parsed;
+          const parsed: any = result.parsed;
 
           await this.prisma.pageAnalysis.upsert({
             where: { pageId: p.id },
@@ -257,7 +259,12 @@ export class AnalysisJobsService {
             },
           });
 
-          const annotations = mapAnalysisToAnnotations(p.id, parsed as any);
+          const annotations = mapAnalysisToAnnotations({
+            pageId: p.id,
+            analysis: parsed,
+            pageWidth: p.width,
+            pageHeight: p.height,
+          });
 
           await this.prisma.pageAnnotations.upsert({
             where: { pageId: p.id },
